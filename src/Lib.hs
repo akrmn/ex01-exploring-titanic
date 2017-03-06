@@ -144,3 +144,21 @@ getTitleFromName name =
 -- *Lib> getTitleFromName "No title here"
 -- Nothing
 -- ```
+--
+-- What if we wanted to count how many people of each title are there?
+-- Well, we can construct it very easily using Haskell!
+--
+-- ```
+-- countPrefixes :: String -> [String] -> Int
+-- countPrefixes title names = length $ filter (isPrefixOf title) names
+-- ```
+-- 
+-- But we can do better and make a synonym of the function by omitting the
+-- last argument, also we can make it more generic by abstracting over the
+-- `String` type and using a type variable, so we can use it for any kind
+-- of data, that's list like. (In Haskell, Strings are defined as `[Char]`).
+countPrefix :: [a] -> [[a]] -> Int
+countPrefix p = length . filter (isPrefixOf p)
+-- Also, let's make a function that counts how many times a title appears
+-- in the names:
+
