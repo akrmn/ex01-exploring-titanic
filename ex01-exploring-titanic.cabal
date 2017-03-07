@@ -15,9 +15,12 @@ cabal-version:       >=1.10
 
 library
   hs-source-dirs:      src
+  extensions:          OverloadedStrings
   build-depends:       base >= 4.7 && < 5
                      , Chart-diagrams
                      , text
+                     , regex-base
+                     , regex-compat-tdfa
                      , analyze
   default-language:    Haskell2010
 
