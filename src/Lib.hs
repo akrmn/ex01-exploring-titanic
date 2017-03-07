@@ -11,98 +11,50 @@
 -- This is a direct port of the [Exploring survival on the titanic notebook](https://www.kaggle.com/mrisdal/titanic/exploring-survival-on-the-titanic) by Megan Risdal.
 -- The intention of this is to have an example of what can be achieved with the data science tools we have in Haskell as for **February 27th, 2017**.
 -- 
-{-# LANGUAGE ConstraintKinds #-}
-{-# LANGUAGE DataKinds #-}
-{-# LANGUAGE FlexibleContexts #-}
-{-# LANGUAGE GADTs #-}
 {-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE PatternSynonyms #-}
-{-# LANGUAGE QuasiQuotes #-}
-{-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE TemplateHaskell #-}
-{-# LANGUAGE TypeOperators #-}
-{-# LANGUAGE ViewPatterns #-}
 module Lib where
---              
-import Control.Applicative
-import qualified Control.Foldl as L
-import qualified Data.Foldable as F
-import Data.Proxy (Proxy(..))
-import Lens.Family
-import Frames
-import Frames.CSV (readTableOpt, rowGen, RowGen(..))
-import Pipes hiding (Proxy)
-import qualified Pipes.Prelude as P
-import Text.Regex
-import Text.Regex.Base
+--  Be sure to fire your repl with `stack repl` and loading the
+--  `OverloadedStrings` extension by issuing `:set -XOverloadedStrings` 
+--  into it.
+import           Data.List
+import           Data.Maybe
+
+import qualified Control.Foldl                as L
+import qualified Data.Text                    as T
+import qualified Data.ByteString.Lazy.Char8   as BL
+import qualified Analyze.Csv                  as CSV
+import qualified Analyze.RFrame               as RF
+import qualified Data.Vector                  as V
+import           Data.Text                    (Text)
+import           Analyze.RFrame               (RFrame)
+import           Data.Vector                  (Vector) 
 -- 
 -- 1.1 Load and check data
 -- -----------------------
 -- 
--- We begin by loading our data from the `input/train.csv` file. `Frames` generates a data type in *compile time* for our CSV file.
+-- Let's begin by loading our data
 -- 
-tableTypes "TrainingSet" "input/train.csv"
+trainingSet :: IO (RFrame Text Text)
+trainingSet = do
+  train <- readFile "input/train.csv" >>=  loadCSV
+  test  <- readFile "input/test.csv"  >>= loadCSV
+  RF.appendRows (removeSurvived train) test
+ where
+  removeSurvived = RF.dropCols (=="Survived")
+  loadCSV = CSV.decodeWithHeader . BL.pack
 -- 
--- Lets check what's the generated data type, from our REPL:
--- 
--- ```
--- *Lib> :i TrainingSet
--- type TrainingSet =
---   Record
---     '[ "PassengerId" :-> Int
---      , "Survived"    :-> Bool
---      , "Pclass"      :-> Int
---      , "Name"        :-> Text
---      , "Sex"         :-> Text
---      , "Age"         :-> Double
---      , "SibSp"       :-> Int
---      , "Parch"       :-> Int
---      , "Ticket"      :-> Int
---      , "Fare"        :-> Double
---      , "Cabin"       :-> Text
---      , "Embarked"    :-> Text
---      ]
--- ```
--- 
--- We will define a **stream** for representing our dataset. This is useful as
--- it might not fit in our RAM:
--- 
-trainingSetStream :: Producer TrainingSet IO ()
-trainingSetStream = readTableOpt trainingSetParser "input/train.csv"
--- 
--- As our data set is small, we will fit our whole data set in RAM
--- (called in-core) through an *Array of Structures* representation:
--- 
-loadTrainingSet :: IO (Frame TrainingSet)
-loadTrainingSet = inCoreAoS trainingSetStream
--- 
--- Now we can load the data in our REPL with:
--- 
--- ```
--- *Lib> ts <- loadTrainingSet
--- *Lib> take 2 $ F.toList ts
--- [{PassengerId :-> 4
--- , Survived :-> True
--- , Pclass :-> 1
--- , Name :-> "Futrelle, Mrs. Jacques Heath (Lily May Peel)"
--- , Sex :-> "female"
--- , Age :-> 35.0
--- , SibSp :-> 1
--- , Parch :-> 0
--- , Ticket :-> 113803
--- , Fare :-> 53.1
--- , Cabin :-> "C123"
--- , Embarked :-> "S"
--- }]
--- ```
--- 
--- We can check the number of observartions too:
+-- Lets check what's there, from our REPL:
 --
 -- ```
--- *Lib> length $ F.toList ts
--- 521
+-- *Lib> ts <- trainingSet
+-- *Lib> RF._rframeKeys ts
+-- ["PassengerId","Pclass","Name","Sex","Age","SibSp","Parch","Ticket","Fare","Cabin","Embarked"]
+-- *Lib> V.head $ RF._rframeData ts
+-- ["1","3","Braund, Mr. Owen Harris","male","22","1","0","A/5 21171","7.25","","S"]
+-- *Lib> V.length $ RF._rframeData ts
+-- 902
 -- ```
--- 
+--
 -- From here we see what we have to deal with:
 -- 
 -- | **Variable Name** | **Description**                  |
@@ -118,7 +70,7 @@ loadTrainingSet = inCoreAoS trainingSetStream
 -- | Fare              | Fare                             |
 -- | Cabin             | Cabin                            |
 -- | Embarked          | Port of embarkation              |
--- 
+--
 -- 2. Feature Engineering
 -- ======================
 -- 
@@ -129,36 +81,56 @@ loadTrainingSet = inCoreAoS trainingSetStream
 -- can break it down into additional variables to have better predictions. Also,
 -- we can break it into *surname* too to represent families.
 -- 
-getTitleFromName :: String -> Maybe String
-getTitleFromName name = 
-  extractMatch <$> matchOnceText titleRegex name
- where
-  titleRegex             = mkRegex "(.*, )|(\\..*)"
-  extractMatch (m, _, _) = m
--- 
+-- As we saw before, a name takes form as "X, <title>. Y" we basically have to
+-- drop X and ", ". And take whatever is before the dot. Let's do this:
+getTitleFromName :: Text -> Text
+getTitleFromName = T.takeWhile (/= '.')
+                 . T.stripStart
+                 . T.drop 1
+                 . T.dropWhile (/= ',')
+-- In Haskell, the dot operator, is function composition, and it is read
+-- "after".
+--
+-- So, our function body is read as:
+-- Take everything that is not a dot *after* stripping the spaces from 
+-- the start *after* dropping one *after* dropping everything that is
+-- not a comma.
+--
 -- Now we can use this function in our REPL to extract the title:
 -- 
 -- ```
--- *Lib> getTitleFromName "Capt. Obvious"
--- Just "Capt"
+-- *Lib> getTitleFromName "The best, Capt. Obvious"
+-- "Capt"
 -- *Lib> getTitleFromName "No title here"
--- Nothing
+-- ""
 -- ```
 --
 -- What if we wanted to count how many people of each title are there?
 -- Well, we can construct it very easily using Haskell!
 --
 -- ```
--- countPrefixes :: String -> [String] -> Int
+-- countPrefixes :: Text -> Vector Text -> Int
 -- countPrefixes title names = length $ filter (isPrefixOf title) names
 -- ```
 -- 
 -- But we can do better and make a synonym of the function by omitting the
--- last argument, also we can make it more generic by abstracting over the
--- `String` type and using a type variable, so we can use it for any kind
--- of data, that's list like. (In Haskell, Strings are defined as `[Char]`).
-countPrefix :: [a] -> [[a]] -> Int
-countPrefix p = length . filter (isPrefixOf p)
+-- last argument.
+countPrefix :: Text -> Vector Text -> Int
+countPrefix p = V.length . V.filter (T.isInfixOf p)
 -- Also, let's make a function that counts how many times a title appears
 -- in the names:
-
+countedTitles :: Vector Text -> Vector (Text, Int)
+countedTitles names = V.zip titles counts
+  where
+    counts = flip countPrefix names <$> titles
+    titles = removeDupes $ getTitleFromName <$> names
+    removeDupes = V.fromList . nub . V.toList
+-- From our REPL, now we can run:
+-- ```
+-- ts <- trainingSet
+-- *Lib> countedTitles <$> RF.col "Name" ts
+-- [("Mr",657),("Mrs",132),("Miss",183),("Master",40),("Don",2),("Rev",6)
+-- ,("Dr",11),("Mme",1),("Ms",1),("Major",2),("Lady",1),("Sir",3),("Mlle",2)
+-- ,("Col",10),("Capt",1),("the Countess",1),("Jonkheer",1)
+-- ]
+-- ```
