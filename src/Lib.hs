@@ -27,7 +27,7 @@ import qualified Analyze.Csv                  as CSV
 import qualified Analyze.RFrame               as RF
 import qualified Data.Vector                  as V
 import           Data.Text                    (Text)
-import           Analyze.RFrame               (RFrame)
+import           Analyze.RFrame               (RFrame, RFrameUpdate)
 import           Data.Vector                  (Vector)
 import           Text.Regex
 import           Text.Regex.Base
@@ -102,12 +102,11 @@ getTitleFromName name = T.pack
 -- 
 -- ```
 -- countPrefixes :: Text -> Vector Text -> Int
--- countPrefixes title names = length $ filter (isPrefixOf title) names
+-- countPrefixes title names = length $ filter (isInfixOf title) names
 -- ```
 -- 
 -- But we can do better and make a synonym of the function by omitting the
 -- last argument.
-
 countPrefix :: Text -> Vector Text -> Int
 countPrefix p = V.length . V.filter (T.isInfixOf p)
 -- Also, let's make a function that counts how many times a title appears
@@ -128,4 +127,34 @@ countedTitles names = V.zip titles counts
 -- ,("Col",10),("Capt",1),("the Countess",1),("Jonkheer",1)
 -- ]
 -- ```
+--
+-- Let's take the rare titles out by replacing them with "Rare Title",
+-- "Mlle" and "Ms" by "Miss" and "Mme" by "Mrs"
+rareTitles :: [Text]
+rareTitles = [ "Dona"
+             , "Lady"
+             , "the Countess"
+             , "Capt"
+             , "Col"
+             , "Don"
+             , "Dr"
+             , "Major"
+             , "Rev"
+             , "Sir"
+             , "Jonkheer"
+             ]
 
+addTitleColumn :: RFrame Text Text -> IO (RFrame Text Text)
+addTitleColumn namesFrame = do
+  nameColumn <- RF.col "Name" namesFrame
+  let newNameFrameUpdate = RF.RFrameUpdate (V.singleton "Title")
+                         $ V.singleton 
+                        <$> updateName
+                        <$> nameColumn
+  RF.fromUpdate newNameFrameUpdate
+ where
+  updateName n
+    | getTitleFromName n `elem` rareTitles     = "Rare Title"
+    | getTitleFromName n `elem` ["Mlle", "Ms"] = "Miss"
+    | getTitleFromName n == "Mme"              = "Mrs"
+    | otherwise                                = getTitleFromName n
