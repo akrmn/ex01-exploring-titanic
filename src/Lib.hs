@@ -38,7 +38,7 @@ import           Text.Regex.Base
 
 trainingSet :: IO (RFrame Text Text)
 trainingSet = do
-  train <- readFile "input/train.csv" >>=  loadCSV
+  train <- readFile "input/train.csv" >>= loadCSV
   test  <- readFile "input/test.csv"  >>= loadCSV
   RF.appendRows (removeSurvived train) test
  where
@@ -118,6 +118,10 @@ countedTitles names = V.zip titles counts
     counts = flip countPrefix names <$> titles
     titles = removeDupes $ getTitleFromName <$> names
     removeDupes = V.fromList . nub . V.toList
+-- Just in case you are wondering, we can read `<$>` as _over_ ,
+-- if you are familiar with the `map` function, it is just an alias
+-- for it.
+--
 -- From our REPL, now we can run:
 -- ```
 -- *Lib> ts <- trainingSet
@@ -144,17 +148,59 @@ rareTitles = [ "Dona"
              , "Jonkheer"
              ]
 
-addTitleColumn :: RFrame Text Text -> IO (RFrame Text Text)
-addTitleColumn namesFrame = do
-  nameColumn <- RF.col "Name" namesFrame
-  let newNameFrameUpdate = RF.RFrameUpdate (V.singleton "Title")
-                         $ V.singleton 
-                        <$> updateName
-                        <$> nameColumn
-  RF.fromUpdate newNameFrameUpdate
+addColumn :: RFrame Text Text -> Text -> Vector Text -> IO (RFrame Text Text)                         
+addColumn rf name v = do
+  c <- newRFrameColumn name $ V.singleton <$> v
+  RF.extendCols rf c
  where
-  updateName n
-    | getTitleFromName n `elem` rareTitles     = "Rare Title"
-    | getTitleFromName n `elem` ["Mlle", "Ms"] = "Miss"
-    | getTitleFromName n == "Mme"              = "Mrs"
-    | otherwise                                = getTitleFromName n
+  newRFrameColumn rfName = RF.fromUpdate . RF.RFrameUpdate (V.singleton rfName)
+
+
+extractTitle :: Text -> Text
+extractTitle n
+  | getTitleFromName n `elem` rareTitles     = "Rare Title"
+  | getTitleFromName n `elem` ["Mlle", "Ms"] = "Miss"
+  | getTitleFromName n == "Mme"              = "Mrs"
+  | otherwise                                = getTitleFromName n
+
+addTitleColumn :: RFrame Text Text -> IO (RFrame Text Text)
+addTitleColumn frame = do
+  nameColumn <- RF.col "Name" frame
+  let titles = extractTitle <$> nameColumn
+  addColumn frame "Title" titles
+
+-- What we are doing here is basically creating another title column.
+--
+-- - We are extracting the "Name" column from our `namesFrame`
+-- - We create a new column **after** being sure that each row contains
+-- a single element like ["Mrs"], **after** extracting the titles **over**
+-- the `nameColumn` we extracted.
+-- - We extend the RFrame we got passed and return it.
+--
+-- As these functions can fail by different reasons, for example if the "Name"
+-- column cannot be found, or if there is a mismatch on row number when
+-- extending the RFrame, we make sure that it is under the `IO` type.
+--
+-- Let's see how many unique surnames we have in our dataset:
+
+extractSurname :: Text -> Text
+extractSurname = head . T.split dotOrComma
+ where
+  dotOrComma ',' = True
+  dotOrComma '.' = True
+  dotOrComma _   = False
+
+addSurnameColumn :: RFrame Text Text -> IO (RFrame Text Text)
+addSurnameColumn frame = do
+  nameColumn <- RF.col "Name" frame
+  let surnames = extractSurname <$> nameColumn
+  addColumn frame "Surname" surnames
+
+differents :: (Eq a) => Vector a -> Int
+differents = length . nub . V.toList
+
+-- We can now use this in our REPL:
+-- ```
+-- *Lib> ts <- trainingSet >>= addTitleColumn >>= addSurnameColumn
+-- *Lib> differents <$> RF.col "Surname" ts
+-- ```
