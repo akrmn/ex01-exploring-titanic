@@ -227,4 +227,3 @@ addFamilyColumn frame = do
   let families = V.zipWith (\fs sn -> fs <> "_" <> sn) fsizeColumn surnameColumn
   addColumn frame "Family" families
 
--- 
