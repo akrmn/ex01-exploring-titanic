@@ -19,6 +19,7 @@ module Lib where
 
 import           Data.List
 import           Data.Maybe
+import           Data.Monoid
 
 import qualified Control.Foldl                as L
 import qualified Data.Text                    as T
@@ -204,3 +205,26 @@ differents = length . nub . V.toList
 -- *Lib> ts <- trainingSet >>= addTitleColumn >>= addSurnameColumn
 -- *Lib> differents <$> RF.col "Surname" ts
 -- ```
+--
+-- 2.2 Do families sink or swim together?
+-- --------------------------------------
+--
+-- Now that we know what families are there thanks to surname extraction, let's
+-- make it a bit more interesting to know about them and how can we relate them.
+-- Let's make a family variable, which tells us which size the family is and a
+-- number of children/parents.
+addFamilySizeColumn :: RFrame Text Text -> IO (RFrame Text Text)
+addFamilySizeColumn frame = do
+  sibSpColumn <- fmap (read . T.unpack) <$> RF.col "SibSp" frame :: IO (Vector Int)
+  parchColumn <- fmap (read . T.unpack) <$> RF.col "Parch" frame :: IO (Vector Int)
+  let familySizes = T.pack <$> show <$> (+1) <$> V.zipWith (+) sibSpColumn parchColumn
+  addColumn frame "Fsize" familySizes
+
+addFamilyColumn :: RFrame Text Text -> IO (RFrame Text Text)
+addFamilyColumn frame = do
+  surnameColumn <- RF.col "Surname" frame
+  fsizeColumn <- RF.col "Fsize" frame
+  let families = V.zipWith (\fs sn -> fs <> "_" <> sn) fsizeColumn surnameColumn
+  addColumn frame "Family" families
+
+-- 
