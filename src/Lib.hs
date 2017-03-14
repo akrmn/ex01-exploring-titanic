@@ -42,11 +42,8 @@ import           Graphics.Rendering.Chart.Backend.Diagrams
 trainingSet :: IO (RFrame Text Text)
 trainingSet = do
   train <- readFile "input/train.csv" >>= loadCSV
-  -- test  <- readFile "input/test.csv"  >>= loadCSV
-  --RF.appendRows (removeSurvived train) test
   return train
  where
-  -- removeSurvived = RF.dropCols (=="Survived")
   loadCSV = CSV.decodeWithHeader . BL.pack
 -- Lets check what's there, from our REPL:
 -- 
@@ -111,6 +108,7 @@ getTitleFromName name = T.pack
 -- 
 -- But we can do better and make a synonym of the function by omitting the
 -- last argument.
+
 countPrefix :: Text -> Vector Text -> Int
 countPrefix p = V.length . V.filter (T.isInfixOf p)
 -- Also, let's make a function that counts how many times a title appears
@@ -125,7 +123,7 @@ countedTitles names = V.zip titles counts
 -- Just in case you are wondering, we can read `<$>` as _over_ ,
 -- if you are familiar with the `map` function, it is just an alias
 -- for it.
---
+-- 
 -- From our REPL, now we can run:
 -- ```
 -- *Lib> ts <- trainingSet
@@ -135,9 +133,10 @@ countedTitles names = V.zip titles counts
 -- ,("Col",10),("Capt",1),("the Countess",1),("Jonkheer",1)
 -- ]
 -- ```
---
+-- 
 -- Let's take the rare titles out by replacing them with "Rare Title",
 -- "Mlle" and "Ms" by "Miss" and "Mme" by "Mrs"
+
 rareTitles :: [Text]
 rareTitles = [ "Dona"
              , "Lady"
@@ -172,19 +171,18 @@ addTitleColumn frame = do
   nameColumn <- RF.col "Name" frame
   let titles = extractTitle <$> nameColumn
   addColumn frame "Title" titles
-
 -- What we are doing here is basically creating another title column.
---
+-- 
 -- - We are extracting the "Name" column from our `namesFrame`
 -- - We create a new column **after** being sure that each row contains
 -- a single element like ["Mrs"], **after** extracting the titles **over**
 -- the `nameColumn` we extracted.
 -- - We extend the RFrame we got passed and return it.
---
+-- 
 -- As these functions can fail by different reasons, for example if the "Name"
 -- column cannot be found, or if there is a mismatch on row number when
 -- extending the RFrame, we make sure that it is under the `IO` type.
---
+-- 
 -- Let's see how many unique surnames we have in our dataset:
 
 extractSurname :: Text -> Text
@@ -202,20 +200,20 @@ addSurnameColumn frame = do
 
 differents :: (Eq a) => Vector a -> Int
 differents = length . nub . V.toList
-
 -- We can now use this in our REPL:
 -- ```
 -- *Lib> ts <- trainingSet >>= addTitleColumn >>= addSurnameColumn
 -- *Lib> differents <$> RF.col "Surname" ts
 -- ```
---
+-- 
 -- 2.2 Do families sink or swim together?
 -- --------------------------------------
---
+-- 
 -- Now that we know what families are there thanks to surname extraction, let's
 -- make it a bit more interesting to know about them and how can we relate them.
 -- Let's make a family variable, which tells us which size the family is and a
 -- number of children/parents.
+
 addFamilySizeColumn :: RFrame Text Text -> IO (RFrame Text Text)
 addFamilySizeColumn frame = do
   sibSpColumn <- fmap (read . T.unpack) <$> RF.col "SibSp" frame :: IO (Vector Int)
@@ -234,9 +232,10 @@ addFamilyColumn frame = do
 -- *Lib> ts <- trainingSet >>= addTitleColumn >>= addSurnameColumn >>= addFamilySizeColumn >>= addFamilyColumn
 -- *Lib> differents <$> RF.col "Surname" ts
 -- ```
---
+-- 
 -- It is better to create an alias for this, so we don't have to type it
 -- constantly.
+
 extendedTrainingSet :: IO (RFrame Text Text)
 extendedTrainingSet = trainingSet 
                     >>= addTitleColumn 
@@ -280,4 +279,37 @@ countSurvivedForSize familySizes surviveds =
                         . V.filter (not . snd) 
                         . V.zip familySizes 
                         $ surviveds
+-- After executing the following commands, we can get the following chart:
+-- ```
+-- *Lib> extendedTrainingSet >>= drawSurvivedPlot
+-- ```
+-- 
+-- ![](C:\Users\nikit\Development\ex01-exploring-titanic\img\plot1.svg)
+-- 
+-- 
+-- 
+-- 
+-- 
+-- 
+-- 
+-- 
+-- 
+-- 
+-- 
+-- 
+-- 
+-- 
+-- 
+-- 
+-- 
+-- 
+-- 
+-- 
+-- 
+-- 
+-- 
+-- 
+-- 
+-- 
+-- # FIXME
 
