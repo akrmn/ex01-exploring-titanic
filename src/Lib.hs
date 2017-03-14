@@ -32,6 +32,8 @@ import           Analyze.RFrame               (RFrame, RFrameUpdate)
 import           Data.Vector                  (Vector)
 import           Text.Regex
 import           Text.Regex.Base
+import           Graphics.Rendering.Chart.Easy hiding (Vector)
+import           Graphics.Rendering.Chart.Backend.Diagrams
 -- 1.1 Load and check data
 -- -----------------------
 -- 
@@ -40,10 +42,11 @@ import           Text.Regex.Base
 trainingSet :: IO (RFrame Text Text)
 trainingSet = do
   train <- readFile "input/train.csv" >>= loadCSV
-  test  <- readFile "input/test.csv"  >>= loadCSV
-  RF.appendRows (removeSurvived train) test
+  -- test  <- readFile "input/test.csv"  >>= loadCSV
+  --RF.appendRows (removeSurvived train) test
+  return train
  where
-  removeSurvived = RF.dropCols (=="Survived")
+  -- removeSurvived = RF.dropCols (=="Survived")
   loadCSV = CSV.decodeWithHeader . BL.pack
 -- Lets check what's there, from our REPL:
 -- 
@@ -226,4 +229,55 @@ addFamilyColumn frame = do
   fsizeColumn <- RF.col "Fsize" frame
   let families = V.zipWith (\fs sn -> fs <> "_" <> sn) fsizeColumn surnameColumn
   addColumn frame "Family" families
+-- To add the columns:
+-- ```
+-- *Lib> ts <- trainingSet >>= addTitleColumn >>= addSurnameColumn >>= addFamilySizeColumn >>= addFamilyColumn
+-- *Lib> differents <$> RF.col "Surname" ts
+-- ```
+--
+-- It is better to create an alias for this, so we don't have to type it
+-- constantly.
+extendedTrainingSet :: IO (RFrame Text Text)
+extendedTrainingSet = trainingSet 
+                    >>= addTitleColumn 
+                    >>= addSurnameColumn 
+                    >>= addFamilySizeColumn 
+                    >>= addFamilyColumn
+-- To use it:
+-- ```
+-- *Lib> ts <- extendedTrainingSet
+-- ```
+
+drawSurvivedPlot frame = do
+  let chartTitles = ["True","False"]
+  survivedColumn <- RF.col "Survived" frame
+  familySizeColumn <- RF.col "Fsize" frame :: IO (Vector Text)
+  let familySizesInt = (read . T.unpack) <$> familySizeColumn :: Vector Int
+  let survivedsBool = (== "1") <$> familySizeColumn
+  let plotData = countSurvivedForSize familySizesInt survivedsBool
+  print plotData
+  toFile def "img/plot1.svg" $ do
+    layout_x_axis . laxis_generate .= autoIndexAxis (show <$> fst <$> plotData)
+    plot $ fmap plotBars $ bars chartTitles (addIndexes (snd <$> plotData))
+
+
+countSurvivedForSize :: Vector Int -> Vector Bool -> [(Int, [Int])]
+countSurvivedForSize familySizes surviveds = 
+  constructInfo <$> [(V.minimum familySizes)..(V.maximum familySizes)] 
+ where
+  constructInfo familySize = ( familySize
+                             , [ aliveWithFamilySize familySize
+                               , deadWithFamilySize familySize
+                               ]
+                             )
+  aliveWithFamilySize fs = V.length 
+                         . V.filter ((== fs) . fst) 
+                         . V.filter snd 
+                         . V.zip familySizes 
+                         $ surviveds
+  deadWithFamilySize fs = V.length 
+                        . V.filter ((== fs) . fst) 
+                        . V.filter (not . snd) 
+                        . V.zip familySizes 
+                        $ surviveds
 
